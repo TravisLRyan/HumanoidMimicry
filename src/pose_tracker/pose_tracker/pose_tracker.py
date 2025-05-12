@@ -181,7 +181,25 @@ class PoseTrackerNode(Node):
             header.frame_id = "map"  #<-- tf frame
             keypoint_points = [val / 1000.0 for idx, val in self.keypoint_positions.items()]  # convert mm to m
 
-            pcl_msg = pc2.create_cloud_xyz32(header, keypoint_points)
+            fields = [
+                PointField('x', 0, PointField.FLOAT32, 1),
+                PointField('y', 4, PointField.FLOAT32, 1),
+                PointField('z', 8, PointField.FLOAT32, 1),
+                PointField('rgb', 12, PointField.UINT32, 1)
+            ]
+
+            colored_points = []
+            for pt in keypoint_points:
+                z = pt[2]
+                # Normalize z value between 0 and 1 (adjust range as needed)
+                z_norm = max(0.0, min(1.0, (z - 0.0) / 2.0))
+                r = int(z_norm * 255)
+                g = 0
+                b = 255 - r
+                rgb = (r << 16) | (g << 8) | b
+                colored_points.append([pt[0], pt[1], pt[2], rgb])
+
+            pcl_msg = pc2.create_cloud(header, fields, colored_points)
             self.pcl_pub.publish(pcl_msg)
 
 
