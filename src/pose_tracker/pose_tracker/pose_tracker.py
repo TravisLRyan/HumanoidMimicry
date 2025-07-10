@@ -177,17 +177,17 @@ class PoseTrackerNode(Node):
 
             #publish keypoints
             header = std_msgs.msg.Header()
+            std_msgs.msg
             header.stamp = self.get_clock().now().to_msg()
             header.frame_id = "map"  #<-- tf frame
             keypoint_points = [val / 1000.0 for idx, val in self.keypoint_positions.items()]  # convert mm to m
 
             fields = [
-                PointField('x', 0, PointField.FLOAT32, 1),
-                PointField('y', 4, PointField.FLOAT32, 1),
-                PointField('z', 8, PointField.FLOAT32, 1),
-                PointField('rgb', 12, PointField.UINT32, 1)
+                PointField(name='x', offset=0, datatype=PointField.FLOAT32, count=1),
+                PointField(name='y', offset=4, datatype=PointField.FLOAT32, count=1),
+                PointField(name='z', offset=8, datatype=PointField.FLOAT32, count=1),
+                PointField(name='rgb', offset=12, datatype=PointField.UINT32, count=1)
             ]
-
             colored_points = []
             for pt in keypoint_points:
                 z = pt[2]

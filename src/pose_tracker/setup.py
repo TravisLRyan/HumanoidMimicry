@@ -1,7 +1,7 @@
 from setuptools import find_packages, setup
+from glob import glob
 
 package_name = 'pose_tracker'
-
 setup(
     name=package_name,
     version='0.0.0',
@@ -10,7 +10,17 @@ setup(
         ('share/ament_index/resource_index/packages',
             ['resource/' + package_name]),
         ('share/' + package_name, ['package.xml']),
-    ],
+
+        # Install URDF and meshes
+        ('share/' + package_name + '/urdf', glob('../../urdf/*.urdf*')),
+        ('share/' + package_name + '/urdf/meshes', glob('../../urdf/meshes/*.STL')),
+
+        #launch files
+        ('share/' + package_name + '/launch', glob('../../launch/*.py')),
+
+        #rviz configuration
+        ('share/' + package_name + '/rviz', glob('../../rviz/*.rviz')),
+	],
     install_requires=['setuptools'],
     zip_safe=True,
     maintainer='parallels',
