@@ -1,0 +1,13 @@
+#!/bin/bash
+
+# Change to the workspace root
+cd ~/humanoid_ws || {
+    echo "Could not find ~/humanoid_ws"
+    exit 1
+}
+
+echo "Cleaning ROS 2 workspace..."
+
+rm -rf build/ install/ log/
+echo "Deleted build/, install/, and log/ folders."
+echo "Run './compilr' to rebuild when ready."

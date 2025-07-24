@@ -179,7 +179,7 @@ class PoseTrackerNode(Node):
             header = std_msgs.msg.Header()
             std_msgs.msg
             header.stamp = self.get_clock().now().to_msg()
-            header.frame_id = "map"  #<-- tf frame
+            header.frame_id = "pelvis"  #<-- tf frame
             keypoint_points = [val / 1000.0 for idx, val in self.keypoint_positions.items()]  # convert mm to m
 
             fields = [
