@@ -1,23 +1,3 @@
-def direction_to_quaternion(direction):
-    """
-    Returns a quaternion (x, y, z, w) that rotates [0, 0, 1] to align with the given direction vector.
-    """
-    import numpy as np
-    direction = np.array(direction)
-    direction = direction / np.linalg.norm(direction)
-    z_axis = np.array([0, 0, 1])
-    v = np.cross(z_axis, direction)
-    c = np.dot(z_axis, direction)
-    s = np.linalg.norm(v)
-    if s == 0:
-        return [0, 0, 0, 1] if c > 0 else [1, 0, 0, 0]  # identity or 180 deg flip
-    axis = v / s
-    angle = np.arctan2(s, c)
-    qw = np.cos(angle / 2)
-    qx, qy, qz = axis * np.sin(angle / 2)
-    return [qx, qy, qz, qw]
-#!/home/parallels/miniconda3/envs/humanoid/bin/python
-
 import rclpy
 from rclpy.node import Node
 
@@ -106,6 +86,9 @@ class PoseTrackerNode(Node):
 
         self.run_loop()
 
+    def pelvis_relative(self, joint, pelvis_center):
+        return joint - pelvis_center
+
     def stop(self, vis, action, mods):
         if action == 0:
             self.isRunning = False
@@ -148,6 +131,76 @@ class PoseTrackerNode(Node):
         sync.out.link(xOut.input)
 
         return pipeline
+
+    def direction_to_quaternion(self, direction):
+        """
+        Returns a quaternion (x, y, z, w) that rotates [0, 0, 1] to align with the given direction vector.
+        """
+        import numpy as np
+        direction = np.array(direction)
+        direction = direction / np.linalg.norm(direction)
+        z_axis = np.array([0, 0, 1])
+        v = np.cross(z_axis, direction)
+        c = np.dot(z_axis, direction)
+        s = np.linalg.norm(v)
+        if s == 0:
+            return [0, 0, 0, 1] if c > 0 else [1, 0, 0, 0]  # identity or 180 deg flip
+        axis = v / s
+        angle = np.arctan2(s, c)
+        qw = np.cos(angle / 2)
+        qx, qy, qz = axis * np.sin(angle / 2)
+        return [qx, qy, qz, qw]
+    #!/home/parallels/miniconda3/envs/humanoid/bin/python
+
+    def rotate_about_z(self, q, angle_rad):
+        """
+        Rotate quaternion q by angle_rad about the Z axis in the base (map/pelvis) frame.
+        """
+        import numpy as np
+        half_angle = angle_rad / 2
+        qz = [0, 0, np.sin(half_angle), np.cos(half_angle)]
+        # Quaternion multiplication q' = q * qz (rotation in base frame)
+        x1, y1, z1, w1 = q
+        x2, y2, z2, w2 = qz
+        return [
+            w1*x2 + x1*w2 + y1*z2 - z1*y2,
+            w1*y2 - x1*z2 + y1*w2 + z1*x2,
+            w1*z2 + x1*y2 - y1*x2 + z1*w2,
+            w1*w2 - x1*x2 - y1*y2 - z1*z2
+        ]
+
+    def has_nan(self, tf):
+        return np.isnan(tf.transform.translation.x) or \
+            np.isnan(tf.transform.translation.y) or \
+            np.isnan(tf.transform.translation.z) or \
+            np.isnan(tf.transform.rotation.x) or \
+            np.isnan(tf.transform.rotation.y) or \
+            np.isnan(tf.transform.rotation.z) or \
+            np.isnan(tf.transform.rotation.w)
+
+    def rotate_about_z(self, q, angle_rad):
+        import numpy as np
+        half_angle = angle_rad / 2
+        qz = [0, 0, np.sin(half_angle), np.cos(half_angle)]
+        # Quaternion multiplication q' = qz * q
+        x1, y1, z1, w1 = qz
+        x2, y2, z2, w2 = q
+        return [
+            w1*x2 + x1*w2 + y1*z2 - z1*y2,
+            w1*y2 - x1*z2 + y1*w2 + z1*x2,
+            w1*z2 + x1*y2 - y1*x2 + z1*w2,
+            w1*w2 - x1*x2 - y1*y2 - z1*z2
+        ]
+
+
+    def camera_to_pelvis(self, vec):
+        # Converts from camera frame (+Z forward, +X right, +Y down)
+        # to pelvis frame (+Z up, +X forward, +Y left), with flipped directions
+        x_c, y_c, z_c = vec
+        x_p = -z_c       # forward (flipped)
+        y_p = x_c        # left (flipped)
+        z_p = y_c        # up (flipped)
+        return np.array([x_p, y_p, z_p])
 
     def run_loop(self):
         while self.isRunning:
@@ -242,52 +295,74 @@ class PoseTrackerNode(Node):
             # Calculate and publish transforms for elbow-to-wrist vectors
             now = self.get_clock().now().to_msg()
 
+            if 23 in self.keypoint_positions and 24 in self.keypoint_positions:
+                left_hip = self.keypoint_positions[23]
+                right_hip = self.keypoint_positions[24]
+                pelvis_center = 0.5 * (left_hip + right_hip)
+            else:
+                self.get_logger().warn("Hip keypoints missing, skipping frame.")
+                continue
+
             if 13 in self.keypoint_positions and 15 in self.keypoint_positions:
-                l_elbow = self.keypoint_positions[13]
-                l_wrist = self.keypoint_positions[15]
-                l_vec = l_wrist - l_elbow
+                l_elbow = self.pelvis_relative(self.keypoint_positions[13], pelvis_center)
+                l_wrist = self.pelvis_relative(self.keypoint_positions[15], pelvis_center)
+                l_vec = self.camera_to_pelvis(l_wrist - l_elbow)
                 l_vec /= np.linalg.norm(l_vec)
 
                 l_tf = TransformStamped()
                 l_tf.header.stamp = now
-                l_tf.header.frame_id = "map"
+                l_tf.header.frame_id = "pelvis"
                 l_tf.child_frame_id = "left_wrist_vector"
-                l_tf.transform.translation.x = l_wrist[0]
-                l_tf.transform.translation.y = l_wrist[1]
-                l_tf.transform.translation.z = l_wrist[2]
+                l_trans = self.camera_to_pelvis(l_wrist)
+                l_tf.transform.translation.x = l_trans[0]
+                l_tf.transform.translation.y = l_trans[1]
+                l_tf.transform.translation.z = l_trans[2]
 
                 # Compute quaternion to align z-axis with l_vec
-                l_qx, l_qy, l_qz, l_qw = direction_to_quaternion(l_vec)
+                l_qx, l_qy, l_qz, l_qw = map(float, self.direction_to_quaternion(l_vec))
+                # l_qx, l_qy, l_qz, l_qw = self.rotate_about_z([l_qx, l_qy, l_qz, l_qw], np.pi)
                 l_tf.transform.rotation.x = l_qx
                 l_tf.transform.rotation.y = l_qy
                 l_tf.transform.rotation.z = l_qz
                 l_tf.transform.rotation.w = l_qw
-                self.get_logger().info("Published left wrist vector transform")
-                self.tf_broadcaster.sendTransform(l_tf)
+                
+                if not self.has_nan(l_tf):
+                    self.tf_broadcaster.sendTransform(l_tf)
+                    self.get_logger().info("Published left wrist vector transform")
+                else:
+                    self.get_logger().warn("Skipping left wrist transform due to NaN values")
+            
 
             if 14 in self.keypoint_positions and 16 in self.keypoint_positions:
-                r_elbow = self.keypoint_positions[14]
-                r_wrist = self.keypoint_positions[16]
-                r_vec = r_wrist - r_elbow
+                r_elbow = self.pelvis_relative(self.keypoint_positions[14], pelvis_center)
+                r_wrist = self.pelvis_relative(self.keypoint_positions[16], pelvis_center)
+                r_vec = self.camera_to_pelvis(r_wrist - r_elbow)
                 r_vec /= np.linalg.norm(r_vec)
 
                 r_tf = TransformStamped()
                 r_tf.header.stamp = now
-                r_tf.header.frame_id = "map"
+                r_tf.header.frame_id = "pelvis"
                 r_tf.child_frame_id = "right_wrist_vector"
-                r_tf.transform.translation.x = r_wrist[0]
-                r_tf.transform.translation.y = r_wrist[1]
-                r_tf.transform.translation.z = r_wrist[2]
+                r_trans = self.camera_to_pelvis(r_wrist)
+                r_tf.transform.translation.x = r_trans[0]
+                r_tf.transform.translation.y = r_trans[1]
+                r_tf.transform.translation.z = r_trans[2]
 
                 # Compute quaternion to align z-axis with r_vec
-                r_qx, r_qy, r_qz, r_qw = direction_to_quaternion(r_vec)
+                r_qx, r_qy, r_qz, r_qw = map(float, self.direction_to_quaternion(r_vec))
+                # r_qx, r_qy, r_qz, r_qw = self.rotate_about_z([r_qx, r_qy, r_qz, r_qw], np.pi)
                 r_tf.transform.rotation.x = r_qx
                 r_tf.transform.rotation.y = r_qy
                 r_tf.transform.rotation.z = r_qz
                 r_tf.transform.rotation.w = r_qw
-                self.get_logger().info("Published right wrist vector transform")
+                
 
-                self.tf_broadcaster.sendTransform(r_tf)
+                if not self.has_nan(r_tf):
+                    self.tf_broadcaster.sendTransform(r_tf)
+                    self.get_logger().info("Published right wrist vector transform")
+                else:
+                    self.get_logger().warn("Skipping right wrist transform due to NaN values")
+            
             if cv2.waitKey(1) == ord('q'):
                 break
 
