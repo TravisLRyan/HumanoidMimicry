@@ -1,4 +1,7 @@
 # judge which cmake codes to use 
+
+set(SKIP_ROSIDL_TYPESUPPORT_C TRUE)
+
 if(ROS_EDITION STREQUAL "ROS1")
 
   # Copyright(c) 2019 livoxtech limited.

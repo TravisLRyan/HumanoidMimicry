@@ -17,7 +17,7 @@ setup(
     maintainer_email='your-email@example.com',
     description='Transforms PointCloud2 to pelvis frame',
     license='MIT',
-    tests_require=['pytest'],
+#    tests_require=['pytest'],
     entry_points={
         'console_scripts': [
             'pointcloud_transformer = camera_tf_transformer.pointcloud_transformer:main',

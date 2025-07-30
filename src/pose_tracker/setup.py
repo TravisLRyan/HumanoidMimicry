@@ -31,6 +31,7 @@ setup(
     entry_points={
         'console_scripts': [
             'pose_tracker_node = pose_tracker.pose_tracker:main',
+            'pose_follower_node = pose_tracker.pose_follower:main',
         ],
     },
 )

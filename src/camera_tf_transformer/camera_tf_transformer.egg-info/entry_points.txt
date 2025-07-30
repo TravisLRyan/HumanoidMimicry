@@ -1,0 +1,2 @@
+[console_scripts]
+pointcloud_transformer = camera_tf_transformer.pointcloud_transformer:main

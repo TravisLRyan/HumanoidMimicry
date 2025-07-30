@@ -1,3 +1,21 @@
+def direction_to_quaternion(direction):
+    """
+    Returns a quaternion (x, y, z, w) that rotates [0, 0, 1] to align with the given direction vector.
+    """
+    import numpy as np
+    direction = np.array(direction)
+    direction = direction / np.linalg.norm(direction)
+    z_axis = np.array([0, 0, 1])
+    v = np.cross(z_axis, direction)
+    c = np.dot(z_axis, direction)
+    s = np.linalg.norm(v)
+    if s == 0:
+        return [0, 0, 0, 1] if c > 0 else [1, 0, 0, 0]  # identity or 180 deg flip
+    axis = v / s
+    angle = np.arctan2(s, c)
+    qw = np.cos(angle / 2)
+    qx, qy, qz = axis * np.sin(angle / 2)
+    return [qx, qy, qz, qw]
 #!/home/parallels/miniconda3/envs/humanoid/bin/python
 
 import rclpy
@@ -14,6 +32,10 @@ import open3d as o3d
 import cv2
 import time
 import sys
+
+# Added imports for transforms
+from geometry_msgs.msg import TransformStamped
+import tf2_ros
 
 FPS = 30
 
@@ -46,7 +68,11 @@ class PoseTrackerNode(Node):
     def __init__(self, visualise=False):
         super().__init__('pose_tracker_node')
         self.get_logger().info("Starting Pose Tracker Node")
-        self.pcl_pub = self.create_publisher(PointCloud2, '/pose_tracker/points', 10)
+        self.pcl_left_pub = self.create_publisher(PointCloud2, '/pose_tracker/left_wrist', 10)
+        self.pcl_right_pub = self.create_publisher(PointCloud2, '/pose_tracker/right_wrist', 10)
+
+        # Add tf broadcaster
+        self.tf_broadcaster = tf2_ros.TransformBroadcaster(self)
 
         self.visualise = visualise
 
@@ -73,6 +99,7 @@ class PoseTrackerNode(Node):
             self.keypoint_spheres = {}
             self.keypoint_colors = {}
         self.keypoint_positions = {}
+        
 
         self.fpsCounter = FPSCounter()
         self.isRunning = True
@@ -142,6 +169,8 @@ class PoseTrackerNode(Node):
                 visible = set()
 
                 for idx, (x, y) in enumerate(keypoints):
+                    # if idx not in (13,14,15,16):  # only include left and right hand keypoints
+                    #     continue
                     if 0 <= x < width and 0 <= y < height:
                         index = y * width + x
                         if 0 <= index < len(points):
@@ -177,10 +206,9 @@ class PoseTrackerNode(Node):
 
             #publish keypoints
             header = std_msgs.msg.Header()
-            std_msgs.msg
             header.stamp = self.get_clock().now().to_msg()
-            header.frame_id = "pelvis"  #<-- tf frame
-            keypoint_points = [val / 1000.0 for idx, val in self.keypoint_positions.items()]  # convert mm to m
+            header.frame_id = "map"  #<-- tf frame
+            self.keypoint_positions = {idx: val / 1000.0 for idx, val in self.keypoint_positions.items()}  # convert mm to m
 
             fields = [
                 PointField(name='x', offset=0, datatype=PointField.FLOAT32, count=1),
@@ -188,8 +216,12 @@ class PoseTrackerNode(Node):
                 PointField(name='z', offset=8, datatype=PointField.FLOAT32, count=1),
                 PointField(name='rgb', offset=12, datatype=PointField.UINT32, count=1)
             ]
-            colored_points = []
-            for pt in keypoint_points:
+            left_point = []
+            right_point = []
+            for idx, pt in self.keypoint_positions.items():
+                if idx not in (15, 16):  # only include left and right hand keypoints
+                # if idx != 15 and idx != 16:  # only include left and right hand keypoints
+                    continue
                 z = pt[2]
                 # Normalize z value between 0 and 1 (adjust range as needed)
                 z_norm = max(0.0, min(1.0, (z - 0.0) / 2.0))
@@ -197,13 +229,65 @@ class PoseTrackerNode(Node):
                 g = 0
                 b = 255 - r
                 rgb = (r << 16) | (g << 8) | b
-                colored_points.append([pt[0], pt[1], pt[2], rgb])
+                if idx == 15:
+                    left_point.append([pt[0], pt[1], pt[2], rgb])
+                elif idx == 16:
+                    right_point.append([pt[0], pt[1], pt[2], rgb])
 
-            pcl_msg = pc2.create_cloud(header, fields, colored_points)
-            self.pcl_pub.publish(pcl_msg)
+            pcl_left_msg = pc2.create_cloud(header, fields, left_point)
+            pcl_right_msg = pc2.create_cloud(header, fields, right_point)
+            self.pcl_left_pub.publish(pcl_left_msg)
+            self.pcl_right_pub.publish(pcl_right_msg)
 
+            # Calculate and publish transforms for elbow-to-wrist vectors
+            now = self.get_clock().now().to_msg()
 
+            if 13 in self.keypoint_positions and 15 in self.keypoint_positions:
+                l_elbow = self.keypoint_positions[13]
+                l_wrist = self.keypoint_positions[15]
+                l_vec = l_wrist - l_elbow
+                l_vec /= np.linalg.norm(l_vec)
 
+                l_tf = TransformStamped()
+                l_tf.header.stamp = now
+                l_tf.header.frame_id = "map"
+                l_tf.child_frame_id = "left_wrist_vector"
+                l_tf.transform.translation.x = l_wrist[0]
+                l_tf.transform.translation.y = l_wrist[1]
+                l_tf.transform.translation.z = l_wrist[2]
+
+                # Compute quaternion to align z-axis with l_vec
+                l_qx, l_qy, l_qz, l_qw = direction_to_quaternion(l_vec)
+                l_tf.transform.rotation.x = l_qx
+                l_tf.transform.rotation.y = l_qy
+                l_tf.transform.rotation.z = l_qz
+                l_tf.transform.rotation.w = l_qw
+                self.get_logger().info("Published left wrist vector transform")
+                self.tf_broadcaster.sendTransform(l_tf)
+
+            if 14 in self.keypoint_positions and 16 in self.keypoint_positions:
+                r_elbow = self.keypoint_positions[14]
+                r_wrist = self.keypoint_positions[16]
+                r_vec = r_wrist - r_elbow
+                r_vec /= np.linalg.norm(r_vec)
+
+                r_tf = TransformStamped()
+                r_tf.header.stamp = now
+                r_tf.header.frame_id = "map"
+                r_tf.child_frame_id = "right_wrist_vector"
+                r_tf.transform.translation.x = r_wrist[0]
+                r_tf.transform.translation.y = r_wrist[1]
+                r_tf.transform.translation.z = r_wrist[2]
+
+                # Compute quaternion to align z-axis with r_vec
+                r_qx, r_qy, r_qz, r_qw = direction_to_quaternion(r_vec)
+                r_tf.transform.rotation.x = r_qx
+                r_tf.transform.rotation.y = r_qy
+                r_tf.transform.rotation.z = r_qz
+                r_tf.transform.rotation.w = r_qw
+                self.get_logger().info("Published right wrist vector transform")
+
+                self.tf_broadcaster.sendTransform(r_tf)
             if cv2.waitKey(1) == ord('q'):
                 break
 

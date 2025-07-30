@@ -10,4 +10,4 @@ echo "Cleaning ROS 2 workspace..."
 
 rm -rf build/ install/ log/
 echo "Deleted build/, install/, and log/ folders."
-echo "Run './compilr' to rebuild when ready."
+echo "Run './compile' to rebuild when ready."

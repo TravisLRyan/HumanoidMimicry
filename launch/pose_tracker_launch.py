@@ -59,7 +59,7 @@ def generate_launch_description():
             output='screen',
         ),
 
-        # Your Pose Tracker Node
+        # Pose Tracker Node
         # Node(
         #     package='pose_tracker',
         #     executable='pose_tracker_node',
