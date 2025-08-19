@@ -36,6 +36,10 @@ PYTHON_PACKAGES=(
     depthai
     mediapipe
     open3d
+    pygame
+    mujoco
+    logging_mp
+    meshcat
     # add more here, e.g.
     # numpy
     # matplotlib
@@ -49,3 +53,28 @@ for pkg in "${PYTHON_PACKAGES[@]}"; do
 done
 
 echo ">>> Done! Packages Installed."
+
+echo ">>> Creating systemd service to enable multicast on lo..."
+
+SERVICE_FILE=/etc/systemd/system/enable-multicast.service
+
+sudo tee $SERVICE_FILE > /dev/null <<EOF
+[Unit]
+Description=Enable multicast on loopback
+After=network.target
+
+[Service]
+Type=oneshot
+ExecStart=/sbin/ip link set lo multicast on
+RemainAfterExit=yes
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+# Reload systemd, enable + start service
+sudo systemctl daemon-reload
+sudo systemctl enable enable-multicast.service
+sudo systemctl start enable-multicast.service
+
+echo ">>> Multicast on loopback will now persist after reboot."

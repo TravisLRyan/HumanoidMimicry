@@ -11,7 +11,8 @@ import logging_mp
 
 logger_mp = logging_mp.get_logger(__name__)
 
-kTopicLowCommand  = "rt/lowcmd"
+kTopicLowCommand_Debug  = "rt/lowcmd"
+kTopicLowCommand_Motion = "rt/arm_sdk"
 kTopicLowState = "rt/lowstate"
 
 G1_29_Num_Motors = 35
@@ -45,10 +46,11 @@ class DataBuffer:
             self.data = data
 
 class G1_29_ArmController:
-    def __init__(self, simulation_mode = False, freeze_legs: bool = True):
+    def __init__(self, motion_mode = False, simulation_mode = False, freeze_legs: bool = True):
         logger_mp.info("Initialize G1_29_ArmController...")
         self.q_target = np.zeros(14)
         self.tauff_target = np.zeros(14)
+        self.motion_mode = motion_mode
         self.simulation_mode = simulation_mode
         self.freeze_legs = freeze_legs
         self.kp_high = 300.0
@@ -73,7 +75,10 @@ class G1_29_ArmController:
             ChannelFactoryInitialize(0)
 
        
-        self.lowcmd_publisher = ChannelPublisher(kTopicLowCommand, LowCmd_)
+        if self.motion_mode:
+            self.lowcmd_publisher = ChannelPublisher(kTopicLowCommand_Motion, LowCmd_)
+        else:
+            self.lowcmd_publisher = ChannelPublisher(kTopicLowCommand_Debug, LowCmd_)
         self.lowcmd_publisher.Init()
         self.lowstate_subscriber = ChannelSubscriber(kTopicLowState, LowState_)
         self.lowstate_subscriber.Init()
@@ -175,11 +180,11 @@ class G1_29_ArmController:
                         if jid.value in arm_index_values:
                             continue  # already commanded above
                         # Command position hold for non-arm joints using the latest measured q
-                        self.msg.motor_cmd[jid].q = lowstate.motor_state[jid].q
+                        self.msg.motor_cmd[jid].q = 0
                         self.msg.motor_cmd[jid].dq = 0
                         self.msg.motor_cmd[jid].tau = 0
-                        self.msg.motor_cmd[jid].kp = 0.0  
-                        self.msg.motor_cmd[jid].kd = 4.0 
+                        self.msg.motor_cmd[jid].kp = 10.0  
+                        self.msg.motor_cmd[jid].kd = 2.0 
             #endedit
 
             self.msg.crc = self.crc.Crc(self.msg)
@@ -225,7 +230,7 @@ class G1_29_ArmController:
         current_attempts = 0
         with self.ctrl_lock:
             self.q_target = np.zeros(14)
-            # self.tauff_target = np.zeros(14)
+            self.tauff_target = np.zeros(14)
         tolerance = 0.05  # Tolerance threshold for joint angles to determine "close to zero", can be adjusted based on your motor's precision requirements
         while current_attempts < max_attempts:
             current_q = self.get_current_dual_arm_q()
@@ -251,8 +256,8 @@ class G1_29_ArmController:
 
     def _Is_weak_motor(self, motor_index):
         weak_motors = [
-            # G1_29_JointIndex.kLeftAnklePitch.value,
-            # G1_29_JointIndex.kRightAnklePitch.value,
+            G1_29_JointIndex.kLeftAnklePitch.value,
+            G1_29_JointIndex.kRightAnklePitch.value,
             # Left arm
             G1_29_JointIndex.kLeftShoulderPitch.value,
             G1_29_JointIndex.kLeftShoulderRoll.value,
