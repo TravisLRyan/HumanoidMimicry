@@ -1,0 +1,51 @@
+#!/usr/bin/env bash
+set -e  # exit if any command fails
+
+echo ">>> Updating package list..."
+sudo apt update
+
+echo ">>> Making sure pip is installed..."
+sudo apt install -y python3-pip python3-venv
+
+echo ">>> Installing required system packages..."
+sudo apt install -y python3-pip python3-venv libusb-1.0-0-dev libusb-1.0-0 wget
+
+echo ">>> Installing DepthAI udev rules..."
+UDEV_RULES_FILE="/etc/udev/rules.d/80-movidius.rules"
+# Embed rule directly, avoid broken upstream source
+if echo 'SUBSYSTEM=="usb", ATTRS{idVendor}=="03e7", MODE="0666"' | sudo tee "$UDEV_RULES_FILE" > /dev/null; then
+    echo ">>> Udev rule written to $UDEV_RULES_FILE"
+    sudo udevadm control --reload-rules
+    sudo udevadm trigger
+    echo ">>> Udev rules reloaded."
+else
+    echo "!!! Failed to download and install udev rules" >&2
+    exit 1
+fi
+
+
+# Add user to plugdev
+if groups $USER | grep -qv "plugdev"; then
+    echo ">>> Adding $USER to plugdev group..."
+    sudo usermod -aG plugdev $USER
+    echo ">>> You must log out and log back in (or reboot) for group changes to take effect."
+fi
+
+# List of Python packages to install
+PYTHON_PACKAGES=(
+    depthai
+    mediapipe
+    open3d
+    # add more here, e.g.
+    # numpy
+    # matplotlib
+    # opencv-python
+)
+
+echo ">>> Installing Python packages..."
+for pkg in "${PYTHON_PACKAGES[@]}"; do
+    echo ">>> Installing $pkg..."
+    pip3 install --upgrade "$pkg"
+done
+
+echo ">>> Done! Packages Installed."
