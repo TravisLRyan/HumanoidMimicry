@@ -13,7 +13,7 @@ class ControllerNode(Node):
         super().__init__('pose_follower_node')
 
         self.get_logger().info("Initializing ControllerNode...")
-        self.arm_controller = G1_29_ArmController(simulation_mode=True)
+        self.arm_controller = G1_29_ArmController(simulation_mode=True, freeze_legs=True)
         self.get_logger().info("Initialized ArmController")
         self.arm_ik = G1_29_ArmIK(Unit_Test=True, Visualization=False)
         self.get_logger().info("Initialized ArmIK")
@@ -28,14 +28,14 @@ class ControllerNode(Node):
 
         self.r_hand_sub = self.create_subscription(
             TransformStamped,
-            '/r_hand_cleaned',
+            '/pose_tracker/right_wrist',
             self.r_hand_callback,
             10
         )
 
         self.l_hand_sub = self.create_subscription(
             TransformStamped,
-            '/l_hand_cleaned',
+            '/pose_tracker/left_wrist',
             self.l_hand_callback,
             10
         )
@@ -43,7 +43,7 @@ class ControllerNode(Node):
         self.latest_r_hand = None
         self.latest_l_hand = None
 
-        self.arm_controller.speed_gradual_max()
+        # self.arm_controller.speed_gradual_max()
 
         self.L_tf_target = pin.SE3(pin.Quaternion(1, 0, 0, 0), np.array([0.25, +0.25, 0.1]))
         self.R_tf_target = pin.SE3(pin.Quaternion(1, 0, 0, 0), np.array([0.25, -0.25, 0.1]))
@@ -104,26 +104,65 @@ class ControllerNode(Node):
         q_target = pin.Quaternion(target.rotation)
         q_interp = self.slerp(q_current, q_target, t=0.1)
 
-        return pin.SE3(current.rotation, new_translation)
-
+        return pin.SE3(q_interp.toRotationMatrix(), new_translation)
+        
     def update(self):
-        if self.deadman_active:
-            if self.latest_l_hand is not None and self.latest_r_hand is not None:
-                self.L_tf_target = self.step_towards_target(self.L_tf_target, self.latest_l_hand)
-                self.R_tf_target = self.step_towards_target(self.R_tf_target, self.latest_r_hand)
+        # if self.deadman_active:
 
-            q = self.arm_controller.get_current_dual_arm_q()
-            dq = self.arm_controller.get_current_dual_arm_dq()
 
+        if self.latest_l_hand is not None and self.latest_r_hand is not None:
+            self.L_tf_target = self.step_towards_target(self.L_tf_target, self.latest_l_hand)
+            self.R_tf_target = self.step_towards_target(self.R_tf_target, self.latest_r_hand)
+
+        q = self.arm_controller.get_current_dual_arm_q()
+        dq = self.arm_controller.get_current_dual_arm_dq()
+
+        #old
+        # sol_q, sol_tauff = self.arm_ik.solve_ik(
+        #     self.L_tf_target.homogeneous,
+        #     self.R_tf_target.homogeneous,
+        #     q, dq
+        # )
+
+        # self.arm_controller.ctrl_dual_arm(sol_q, sol_tauff)
+
+        # #new
+        try:
             sol_q, sol_tauff = self.arm_ik.solve_ik(
                 self.L_tf_target.homogeneous,
                 self.R_tf_target.homogeneous,
                 q, dq
             )
+        except Exception as e:
+            self.get_logger().warn(f"IK solve failed: {e}")
+            return  # skip this tick
 
-            self.arm_controller.ctrl_dual_arm(sol_q, sol_tauff)
+        # Reject non-finite or outrageous values
+        if sol_q is None or not np.all(np.isfinite(sol_q)):
+            self.get_logger().warn("IK returned non-finite joint solution; skipping tick")
+            return
 
-            self.step += 1
+        # Conservative joint clamp (tune per joint later)
+        sol_q = np.clip(sol_q, -2.8, 2.8)
+
+        # Extra safety: rate-limit command (0.8 rad/s @ 100 Hz → 0.008 rad/step)
+        dt = 0.01
+        max_joint_vel = 0.8
+        max_step = max_joint_vel * dt
+        dq_cmd = np.clip(sol_q - q, -max_step, max_step)
+        cmd_q = q + dq_cmd
+
+        # Sanitize torques
+        if sol_tauff is None:
+            sol_tauff = np.zeros_like(cmd_q)
+        else:
+            sol_tauff = np.nan_to_num(sol_tauff, nan=0.0, posinf=0.0, neginf=0.0)
+            sol_tauff = np.clip(sol_tauff, -30.0, 30.0)
+
+        self.arm_controller.ctrl_dual_arm(cmd_q, sol_tauff)
+        # #endnew
+
+        self.step += 1
 
 def main():
     rclpy.init()

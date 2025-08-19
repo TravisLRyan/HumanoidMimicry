@@ -34,6 +34,58 @@ class FPSCounter:
             self.startTime = time.time()
         return self.fps
 
+class KalmanFilter3D:
+    def __init__(self, dt=1/30, process_var=1e-2, meas_var=1e-1):
+        self.dt = dt
+        self.A = np.eye(6)
+        for i in range(3):
+            self.A[i, i+3] = dt
+
+        self.H = np.hstack((np.eye(3), np.zeros((3, 3))))
+        self.Q = process_var * np.eye(6)
+        self.R = meas_var * np.eye(3)
+
+        self.P = np.eye(6)
+        self.x = np.zeros((6, 1))
+        self.initialized = False
+
+    def predict(self):
+        self.x = self.A @ self.x
+        self.P = self.A @ self.P @ self.A.T + self.Q
+
+    def update(self, z):
+        z = z.reshape(3, 1)
+        if not self.initialized:
+            self.x[:3] = z
+            self.x[3:] = 0
+            self.initialized = True
+
+        y = z - self.H @ self.x
+        S = self.H @ self.P @ self.H.T + self.R
+        K = self.P @ self.H.T @ np.linalg.inv(S)
+
+        self.x += K @ y
+        self.P = (np.eye(6) - K @ self.H) @ self.P
+
+    def get_position(self):
+        return self.x[:3].flatten()
+
+# Depth window averaging function
+def average_depth_window(points, x, y, width, height, kernel=3, fallback=None):
+    half_k = kernel // 2
+    xs = np.clip(np.arange(x - half_k, x + half_k + 1), 0, width - 1)
+    ys = np.clip(np.arange(y - half_k, y + half_k + 1), 0, height - 1)
+    pts = []
+    for yy in ys:
+        for xx in xs:
+            idx = yy * width + xx
+            pt = points[idx]
+            if np.all(np.isfinite(pt)) and pt[2] > 0:
+                pts.append(pt)
+    if pts:
+        return np.mean(pts, axis=0)
+    return fallback
+
 def getPosePoints(frame, pose_model):
     results = pose_model.process(frame)
     if not results.pose_landmarks:
@@ -79,6 +131,8 @@ class PoseTrackerNode(Node):
             self.keypoint_spheres = {}
             self.keypoint_colors = {}
         self.keypoint_positions = {}
+        self.left_wrist_kf = KalmanFilter3D()
+        self.right_wrist_kf = KalmanFilter3D()
         
 
         self.fpsCounter = FPSCounter()
@@ -222,29 +276,40 @@ class PoseTrackerNode(Node):
                 visible = set()
 
                 for idx, (x, y) in enumerate(keypoints):
-                    # if idx not in (13,14,15,16):  # only include left and right hand keypoints
-                    #     continue
+                    if idx not in (13, 14, 15, 16, 23, 24):  # only include left and right hand keypoints
+                        continue
                     if 0 <= x < width and 0 <= y < height:
-                        index = y * width + x
-                        if 0 <= index < len(points):
-                            pt = points[index]
-                            self.keypoint_positions[idx] = pt
-                            if self.visualise:
-                                color = rgb[y, x] / 255.0
-                                visible.add(idx)
-                                if idx not in self.keypoint_spheres:
-                                    s = o3d.geometry.TriangleMesh.create_sphere(radius=20)
-                                    s.paint_uniform_color(color)
-                                    s.translate(pt - np.array([10, 10, 10]))
-                                    self.keypoint_spheres[idx] = s
-                                    self.keypoint_positions[idx] = pt
-                                    self.keypoint_colors[idx] = color
-                                    self.vis.add_geometry(s)
-                                else:
-                                    delta = pt - self.keypoint_positions[idx]
-                                    self.keypoint_spheres[idx].translate(delta)
-                                    self.keypoint_positions[idx] = pt
-                                    self.vis.update_geometry(self.keypoint_spheres[idx])
+                        # Use averaged depth over a 3x3 window, fallback to previous value
+                        prev_pt = self.keypoint_positions.get(idx, None)
+                        pt = average_depth_window(points, x, y, width, height, kernel=3, fallback=prev_pt)
+                        if pt is None:
+                            continue
+                        if idx == 15:
+                            self.left_wrist_kf.predict()
+                            self.left_wrist_kf.update(pt)
+                            pt = self.left_wrist_kf.get_position()
+                        elif idx == 16:
+                            self.right_wrist_kf.predict()
+                            self.right_wrist_kf.update(pt)
+                            pt = self.right_wrist_kf.get_position()
+
+                        self.keypoint_positions[idx] = pt
+                        if self.visualise:
+                            color = rgb[y, x] / 255.0
+                            visible.add(idx)
+                            if idx not in self.keypoint_spheres:
+                                s = o3d.geometry.TriangleMesh.create_sphere(radius=20)
+                                s.paint_uniform_color(color)
+                                s.translate(pt - np.array([10, 10, 10]))
+                                self.keypoint_spheres[idx] = s
+                                self.keypoint_positions[idx] = pt
+                                self.keypoint_colors[idx] = color
+                                self.vis.add_geometry(s)
+                            else:
+                                delta = pt - self.keypoint_positions[idx]
+                                self.keypoint_spheres[idx].translate(delta)
+                                self.keypoint_positions[idx] = pt
+                                self.vis.update_geometry(self.keypoint_spheres[idx])
                 if self.visualise:
                     for idx in set(self.keypoint_spheres.keys()) - visible:
                         self.vis.remove_geometry(self.keypoint_spheres[idx])
@@ -320,7 +385,6 @@ class PoseTrackerNode(Node):
 
                 # Compute quaternion to align z-axis with l_vec
                 l_qx, l_qy, l_qz, l_qw = map(float, self.direction_to_quaternion(l_vec))
-                # l_qx, l_qy, l_qz, l_qw = self.rotate_about_z([l_qx, l_qy, l_qz, l_qw], np.pi)
                 l_tf.transform.rotation.x = l_qx
                 l_tf.transform.rotation.y = l_qy
                 l_tf.transform.rotation.z = l_qz
@@ -350,7 +414,6 @@ class PoseTrackerNode(Node):
 
                 # Compute quaternion to align z-axis with r_vec
                 r_qx, r_qy, r_qz, r_qw = map(float, self.direction_to_quaternion(r_vec))
-                # r_qx, r_qy, r_qz, r_qw = self.rotate_about_z([r_qx, r_qy, r_qz, r_qw], np.pi)
                 r_tf.transform.rotation.x = r_qx
                 r_tf.transform.rotation.y = r_qy
                 r_tf.transform.rotation.z = r_qz

@@ -12,7 +12,7 @@ logger_mp = logging_mp.get_logger(__name__)
 parent2_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 sys.path.append(parent2_dir)
 
-from teleop.utils.weighted_moving_filter import WeightedMovingFilter
+from pose_tracker.weighted_moving_filter import WeightedMovingFilter
 
 class G1_29_ArmIK:
     def __init__(self, Unit_Test = False, Visualization = False):
@@ -21,10 +21,10 @@ class G1_29_ArmIK:
         self.Unit_Test = Unit_Test
         self.Visualization = Visualization
 
-        if not self.Unit_Test:
-            self.robot = pin.RobotWrapper.BuildFromURDF('../assets/g1/g1_body29_hand14.urdf', '../assets/g1/')
-        else:
-            self.robot = pin.RobotWrapper.BuildFromURDF('../../assets/g1/g1_body29_hand14.urdf', '../../assets/g1/') # for test
+        urdf_path = os.path.expanduser('~/humanoid_ws/assets/g1/g1_body29_hand14.urdf')
+        model_path = os.path.expanduser('~/humanoid_ws/assets/g1/')
+
+        self.robot = pin.RobotWrapper.BuildFromURDF(urdf_path, model_path)
 
         self.mixed_jointsToLockIDs = [
                                         "left_hip_pitch_joint" ,
@@ -60,6 +60,9 @@ class G1_29_ArmIK:
                                         "right_hand_middle_1_joint"
                                     ]
 
+
+        print(f"Mixed joints to lock: {self.mixed_jointsToLockIDs}")
+ 
         self.reduced_robot = self.robot.buildReducedRobot(
             list_of_joints_to_lock=self.mixed_jointsToLockIDs,
             reference_configuration=np.array([0.0] * self.robot.model.nq),

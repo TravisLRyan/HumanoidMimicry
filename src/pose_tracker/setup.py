@@ -15,6 +15,9 @@ setup(
         ('share/' + package_name + '/urdf', glob('../../urdf/*.urdf*')),
         ('share/' + package_name + '/urdf/meshes', glob('../../urdf/meshes/*.STL')),
 
+        ('share/' + package_name + '/assets/g1', glob('../../assets/g1/*.urdf*')),
+        ('share/' + package_name + '/assets/g1/meshes', glob('../../assets/g1/meshes/*.STL')),
+
         #launch files
         ('share/' + package_name + '/launch', glob('../../launch/*.py')),
 

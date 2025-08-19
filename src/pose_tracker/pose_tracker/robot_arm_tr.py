@@ -45,11 +45,12 @@ class DataBuffer:
             self.data = data
 
 class G1_29_ArmController:
-    def __init__(self, simulation_mode = False):
+    def __init__(self, simulation_mode = False, freeze_legs: bool = True):
         logger_mp.info("Initialize G1_29_ArmController...")
         self.q_target = np.zeros(14)
         self.tauff_target = np.zeros(14)
         self.simulation_mode = simulation_mode
+        self.freeze_legs = freeze_legs
         self.kp_high = 300.0
         self.kd_high = 3.0
         self.kp_low = 80.0
@@ -58,7 +59,7 @@ class G1_29_ArmController:
         self.kd_wrist = 1.5
 
         self.all_motor_q = None
-        self.arm_velocity_limit = 20.0
+        self.arm_velocity_limit = 0.1
         self.control_dt = 1.0 / 250.0
 
         self._speed_gradual_max = False
@@ -154,15 +155,32 @@ class G1_29_ArmController:
                 arm_q_target     = self.q_target
                 arm_tauff_target = self.tauff_target
 
-            if self.simulation_mode:
-                cliped_arm_q_target = arm_q_target
-            else:
-                cliped_arm_q_target = self.clip_arm_q_target(arm_q_target, velocity_limit = self.arm_velocity_limit)
+            # if self.simulation_mode:
+            #     cliped_arm_q_target = arm_q_target
+            # else:
+            cliped_arm_q_target = self.clip_arm_q_target(arm_q_target, velocity_limit = self.arm_velocity_limit)
 
             for idx, id in enumerate(G1_29_JointArmIndex):
                 self.msg.motor_cmd[id].q = cliped_arm_q_target[idx]
                 self.msg.motor_cmd[id].dq = 0
-                self.msg.motor_cmd[id].tau = arm_tauff_target[idx]   
+                self.msg.motor_cmd[id].tau = arm_tauff_target[idx]
+
+            #edit
+            # Keep non-arm joints locked at their current states to prevent motion in sim
+            if self.freeze_legs:
+                lowstate = self.lowstate_buffer.GetData()
+                if lowstate is not None:
+                    arm_index_values = set(member.value for member in G1_29_JointArmIndex)
+                    for jid in G1_29_JointIndex:
+                        if jid.value in arm_index_values:
+                            continue  # already commanded above
+                        # Command position hold for non-arm joints using the latest measured q
+                        self.msg.motor_cmd[jid].q = lowstate.motor_state[jid].q
+                        self.msg.motor_cmd[jid].dq = 0
+                        self.msg.motor_cmd[jid].tau = 0
+                        self.msg.motor_cmd[jid].kp = 0.0  
+                        self.msg.motor_cmd[jid].kd = 4.0 
+            #endedit
 
             self.msg.crc = self.crc.Crc(self.msg)
             self.lowcmd_publisher.Write(self.msg)
@@ -233,8 +251,8 @@ class G1_29_ArmController:
 
     def _Is_weak_motor(self, motor_index):
         weak_motors = [
-            G1_29_JointIndex.kLeftAnklePitch.value,
-            G1_29_JointIndex.kRightAnklePitch.value,
+            # G1_29_JointIndex.kLeftAnklePitch.value,
+            # G1_29_JointIndex.kRightAnklePitch.value,
             # Left arm
             G1_29_JointIndex.kLeftShoulderPitch.value,
             G1_29_JointIndex.kLeftShoulderRoll.value,

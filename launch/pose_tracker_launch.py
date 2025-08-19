@@ -4,6 +4,8 @@ from launch_ros.substitutions import FindPackageShare
 from launch import LaunchDescription
 from launch_ros.actions import Node
 
+logLevel = "info"
+
 def generate_launch_description():
     return LaunchDescription([
 
@@ -15,8 +17,10 @@ def generate_launch_description():
             arguments=[
                 '0', '0', '0',            # translation: x y z
                 '-0.5', '-0.5', '-0.5', '0.5',  # rotation: quaternion x y z w
-                'map', 'pelvis'           # parent frame, child frame
-            ]
+                'map', 'pelvis',           # parent frame, child frame
+                "--ros-args", "--log-level", logLevel
+            ],
+            output='screen',
         ),
         
         # PointCloud Transformer Node
@@ -29,7 +33,8 @@ def generate_launch_description():
                 'input_topic': '/pose_tracker/points',
                 'output_topic': '/points_in_pelvis',
                 'target_frame': 'pelvis'
-            }]
+            }],
+            arguments=["--ros-args", "--log-level", logLevel],
         ),
 
         # Robot State Publisher
@@ -46,9 +51,13 @@ def generate_launch_description():
                         FindPackageShare('pose_tracker'),
                         'urdf',
                         'g1_29dof_lock_waist.urdf'
+                        # 'assets',
+                        # 'g1',
+                        # 'g1_body29_hand14.urdf'
                     ])
                 ])}
             ],
+            arguments=["--ros-args", "--log-level", logLevel],
         ),
 
         # Joint State Publisher GUI
@@ -57,29 +66,48 @@ def generate_launch_description():
             executable='joint_state_publisher_gui',
             name='joint_state_publisher_gui',
             output='screen',
+            arguments=["--ros-args", "--log-level", logLevel],
         ),
 
         # Pose Tracker Node
+        Node(
+            package='pose_tracker',
+            executable='pose_tracker_node',
+            name='pose_tracker',
+            output='screen',
+            arguments=["--ros-args", "--log-level", logLevel],
+        ),
+
+        # #Collision checker
         # Node(
-        #     package='pose_tracker',
-        #     executable='pose_tracker_node',
-        #     name='pose_tracker',
+        #     package='fcl_self_collision_checker',
+        #     executable='collision_checker',
+        #     name='fcl_self_collision_checker',
         #     output='screen',
+        #     parameters=[{
+        #         "urdf_path": PathJoinSubstitution([
+        #             FindPackageShare('fcl_self_collision_checker'),
+        #             'urdf',
+        #             'g1_29dof_lock_waist.urdf'
+        #         ])
+        #     }],
+        #     arguments=["--ros-args", "--log-level", logLevel],
         # ),
 
-        # RViz
-        Node(
-            package='rviz2',
-            executable='rviz2',
-            name='rviz2',
-            output='screen',
-            arguments=[
-                '-d',
-                PathJoinSubstitution([
-                    FindPackageShare('pose_tracker'),
-                    'rviz',
-                    'pose_tracker.rviz'
-                ])
-            ],
-        ),
+        # # RViz
+        # Node(
+        #     package='rviz2',
+        #     executable='rviz2',
+        #     name='rviz2',
+        #     output='screen',
+        #     arguments=[
+        #         '-d',
+        #         PathJoinSubstitution([
+        #             FindPackageShare('pose_tracker'),
+        #             'rviz',
+        #             'pose_tracker.rviz'
+        #         ]),
+        #         "--ros-args", "--log-level", logLevel
+        #     ],
+        # ),
     ])
