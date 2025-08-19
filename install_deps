@@ -12,8 +12,9 @@ sudo apt install -y python3-pip python3-venv libusb-1.0-0-dev libusb-1.0-0 wget
 
 echo ">>> Installing DepthAI udev rules..."
 UDEV_RULES_FILE="/etc/udev/rules.d/80-movidius.rules"
-if wget -q -O - https://raw.githubusercontent.com/luxonis/depthai-udev-rules/master/80-movidius.rules | sudo tee "$UDEV_RULES_FILE" > /dev/null; then
-    echo ">>> Udev rules installed to $UDEV_RULES_FILE"
+# Embed rule directly, avoid broken upstream source
+if echo 'SUBSYSTEM=="usb", ATTRS{idVendor}=="03e7", MODE="0666"' | sudo tee "$UDEV_RULES_FILE" > /dev/null; then
+    echo ">>> Udev rule written to $UDEV_RULES_FILE"
     sudo udevadm control --reload-rules
     sudo udevadm trigger
     echo ">>> Udev rules reloaded."
