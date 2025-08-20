@@ -44,14 +44,11 @@ class ControllerNode(Node):
         self.latest_r_hand = None
         self.latest_l_hand = None
 
-        self.arm_controller.speed_gradual_max()
+        self.arm_controller.speed_gradual_max(10)
 
         self.L_tf_target = pin.SE3(pin.Quaternion(1, 0, 0, 0), np.array([0.25, +0.25, 0.5]))
         self.R_tf_target = pin.SE3(pin.Quaternion(1, 0, 0, 0), np.array([0.25, -0.25, 0.5]))
 
-
-        # self.L_tf_target = pin.SE3(pin.Quaternion(1, 0, 0, 0), np.array([0.25, +0.25, 0.25]))
-        # self.R_tf_target = pin.SE3(pin.Quaternion(1, 0, 0, 0), np.array([0.0, +0.25, 0.0]))
 
         self.rotation_speed = 0.005
         self.step = 0
@@ -140,14 +137,9 @@ class ControllerNode(Node):
         # if self.deadman_active:
 
 
-        if self.latest_l_hand is not None and self.latest_r_hand is not None:
-            self.L_tf_target = self.step_towards_target(self.L_tf_target, self.latest_l_hand)
-            self.R_tf_target = self.step_towards_target(self.R_tf_target, self.latest_r_hand)
 
         rx, ry, rz = self.R_tf_target.translation
         lx, ly, lz = self.L_tf_target.translation
-
-        # print("rx, ry, rz:", rx, ry, rz)
 
         rx, ry, rz = self.check_keys(rx, ry, rz)
         lx, ly, lz = self.check_keys(lx, ly, lz)
@@ -158,59 +150,25 @@ class ControllerNode(Node):
         q = self.arm_controller.get_current_dual_arm_q()
         dq = self.arm_controller.get_current_dual_arm_dq()
 
-        #old
+        if self.latest_l_hand is not None and self.latest_r_hand is not None:
+            self.L_tf_target = self.step_towards_target(self.L_tf_target, self.latest_l_hand)
+            self.R_tf_target = self.step_towards_target(self.R_tf_target, self.latest_r_hand)
+        
         sol_q, sol_tauff = self.arm_ik.solve_ik(
             self.L_tf_target.homogeneous,
             self.R_tf_target.homogeneous,
             q, dq
         )
 
+        # threshold = 0.02
+
+        # for i in range(len(q)):
+        #     if abs(sol_q[i] - q[i]) <  threshold:
+        #         sol_q[i] = q[i]
+        #         sol_tauff = np.zeros(14)
+
+
         self.arm_controller.ctrl_dual_arm(sol_q, sol_tauff)
-
-        # #new
-
-        #TESTING NEW IK SOLVE
-
-        # self.L_tf_target.homogeneous = 
-
-        #END TESTING NEW IK SOLVE
-
-        # try:
-        #     sol_q, sol_tauff = self.arm_ik.solve_ik(
-        #         self.L_tf_target.homogeneous,
-        #         self.R_tf_target.homogeneous,
-        #         q, dq
-        #     )
-        # except Exception as e:
-        #     self.get_logger().warn(f"IK solve failed: {e}")
-        #     return  # skip this tick
-
-        # # Reject non-finite or outrageous values
-        # if sol_q is None or not np.all(np.isfinite(sol_q)):
-        #     self.get_logger().warn("IK returned non-finite joint solution; skipping tick")
-        #     return
-
-        # # Conservative joint clamp (tune per joint later)
-        # sol_q = np.clip(sol_q, -2.8, 2.8)
-
-        # # Extra safety: rate-limit command (0.8 rad/s @ 100 Hz → 0.008 rad/step)
-        # dt = 0.01
-        # max_joint_vel = 0.8
-        # max_step = max_joint_vel * dt
-        # dq_cmd = np.clip(sol_q - q, -max_step, max_step)
-        # cmd_q = q + dq_cmd
-
-        # # Sanitize torques
-        # if sol_tauff is None:
-        #     sol_tauff = np.zeros_like(cmd_q)
-        # else:
-        #     sol_tauff = np.nan_to_num(sol_tauff, nan=0.0, posinf=0.0, neginf=0.0)
-        #     sol_tauff = np.clip(sol_tauff, -10.0, 10.0)
-
-        # self.arm_controller.ctrl_dual_arm(cmd_q, sol_tauff)
-        # print(f"Step {self.step}: L_target={self.L_tf_target.translation}, R_target={self.R_tf_target.translation}, cmd_q={cmd_q}, sol_tauff={sol_tauff}")
-        # # self.arm_controller.ctrl_dual_arm(np.zeros(14), np.zeros(14))  # Placeholder for actual command
-        # # #endnew
 
         self.step += 1
 
