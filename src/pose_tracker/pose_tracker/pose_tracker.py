@@ -100,8 +100,8 @@ class PoseTrackerNode(Node):
     def __init__(self, visualise=False):
         super().__init__('pose_tracker_node')
         self.get_logger().info("Starting Pose Tracker Node")
-        self.pcl_left_pub = self.create_publisher(PointCloud2, '/pose_tracker/left_wrist', 10)
-        self.pcl_right_pub = self.create_publisher(PointCloud2, '/pose_tracker/right_wrist', 10)
+        self.tf_left_pub = self.create_publisher(TransformStamped, '/pose_tracker/left_wrist', 10)
+        self.tf_right_pub = self.create_publisher(TransformStamped, '/pose_tracker/right_wrist', 10)
 
         # Add tf broadcaster
         self.tf_broadcaster = tf2_ros.TransformBroadcaster(self)
@@ -110,7 +110,7 @@ class PoseTrackerNode(Node):
 
         self.pose = mp.solutions.pose.Pose(
             static_image_mode=False,
-            model_complexity=1,
+            model_complexity=2,
             smooth_landmarks=True,
             enable_segmentation=False,
             min_detection_confidence=0.5,
@@ -193,18 +193,17 @@ class PoseTrackerNode(Node):
         import numpy as np
         direction = np.array(direction)
         direction = direction / np.linalg.norm(direction)
-        z_axis = np.array([0, 0, 1])
-        v = np.cross(z_axis, direction)
-        c = np.dot(z_axis, direction)
+        x_axis = np.array([1, 0, 0])
+        v = np.cross(x_axis, direction)
+        c = np.dot(x_axis, direction)
         s = np.linalg.norm(v)
         if s == 0:
-            return [0, 0, 0, 1] if c > 0 else [1, 0, 0, 0]  # identity or 180 deg flip
+            return [0, 0, 0, 1] if c > 0 else [0, 0, 1, 0]  # identity or 180 deg flip
         axis = v / s
         angle = np.arctan2(s, c)
         qw = np.cos(angle / 2)
         qx, qy, qz = axis * np.sin(angle / 2)
         return [qx, qy, qz, qw]
-    #!/home/parallels/miniconda3/envs/humanoid/bin/python
 
     def rotate_about_z(self, q, angle_rad):
         """
@@ -352,10 +351,10 @@ class PoseTrackerNode(Node):
                 elif idx == 16:
                     right_point.append([pt[0], pt[1], pt[2], rgb])
 
-            pcl_left_msg = pc2.create_cloud(header, fields, left_point)
-            pcl_right_msg = pc2.create_cloud(header, fields, right_point)
-            self.pcl_left_pub.publish(pcl_left_msg)
-            self.pcl_right_pub.publish(pcl_right_msg)
+            # pcl_left_msg = pc2.create_cloud(header, fields, left_point)
+            # pcl_right_msg = pc2.create_cloud(header, fields, right_point)
+            # self.pcl_left_pub.publish(pcl_left_msg)
+            # self.pcl_right_pub.publish(pcl_right_msg)
 
             # Calculate and publish transforms for elbow-to-wrist vectors
             now = self.get_clock().now().to_msg()
@@ -381,9 +380,9 @@ class PoseTrackerNode(Node):
                 l_trans = self.camera_to_pelvis(l_wrist)
                 l_tf.transform.translation.x = l_trans[0]
                 l_tf.transform.translation.y = l_trans[1]
-                l_tf.transform.translation.z = l_trans[2]
+                l_tf.transform.translation.z = l_trans[2] - 0.2
 
-                # Compute quaternion to align z-axis with l_vec
+                # Compute quaternion to align z-axis with l_vec (calculate wrist rotation)
                 l_qx, l_qy, l_qz, l_qw = map(float, self.direction_to_quaternion(l_vec))
                 l_tf.transform.rotation.x = l_qx
                 l_tf.transform.rotation.y = l_qy
@@ -392,6 +391,7 @@ class PoseTrackerNode(Node):
                 
                 if not self.has_nan(l_tf):
                     self.tf_broadcaster.sendTransform(l_tf)
+                    self.tf_left_pub.publish(l_tf)
                     self.get_logger().info("Published left wrist vector transform")
                 else:
                     self.get_logger().warn("Skipping left wrist transform due to NaN values")
@@ -410,7 +410,7 @@ class PoseTrackerNode(Node):
                 r_trans = self.camera_to_pelvis(r_wrist)
                 r_tf.transform.translation.x = r_trans[0]
                 r_tf.transform.translation.y = r_trans[1]
-                r_tf.transform.translation.z = r_trans[2]
+                r_tf.transform.translation.z = r_trans[2] - 0.2
 
                 # Compute quaternion to align z-axis with r_vec
                 r_qx, r_qy, r_qz, r_qw = map(float, self.direction_to_quaternion(r_vec))
@@ -422,6 +422,7 @@ class PoseTrackerNode(Node):
 
                 if not self.has_nan(r_tf):
                     self.tf_broadcaster.sendTransform(r_tf)
+                    self.tf_right_pub.publish(r_tf)
                     self.get_logger().info("Published right wrist vector transform")
                 else:
                     self.get_logger().warn("Skipping right wrist transform due to NaN values")

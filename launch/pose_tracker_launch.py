@@ -94,20 +94,20 @@ def generate_launch_description():
         #     arguments=["--ros-args", "--log-level", logLevel],
         # ),
 
-        # # RViz
-        # Node(
-        #     package='rviz2',
-        #     executable='rviz2',
-        #     name='rviz2',
-        #     output='screen',
-        #     arguments=[
-        #         '-d',
-        #         PathJoinSubstitution([
-        #             FindPackageShare('pose_tracker'),
-        #             'rviz',
-        #             'pose_tracker.rviz'
-        #         ]),
-        #         "--ros-args", "--log-level", logLevel
-        #     ],
-        # ),
+        # RViz
+        Node(
+            package='rviz2',
+            executable='rviz2',
+            name='rviz2',
+            output='screen',
+            arguments=[
+                '-d',
+                PathJoinSubstitution([
+                    FindPackageShare('pose_tracker'),
+                    'rviz',
+                    'pose_tracker.rviz'
+                ]),
+                "--ros-args", "--log-level", logLevel
+            ],
+        ),
     ])

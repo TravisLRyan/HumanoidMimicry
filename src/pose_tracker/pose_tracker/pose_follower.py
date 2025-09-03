@@ -107,9 +107,9 @@ class ControllerNode(Node):
         q_target = pin.Quaternion(target.rotation)
         q_interp = self.slerp(q_current, q_target, t=0.1)
 
-        # return pin.SE3(q_interp.toRotationMatrix(), new_translation)
+        return pin.SE3(q_interp.toRotationMatrix(), new_translation)
 
-        return pin.SE3(current.toRotationMatrix(), new_translation)
+        # return pin.SE3(q_target.toRotationMatrix(), new_translation)
     
     def check_keys(self, x, y, z):
         step = 0.01
@@ -137,23 +137,30 @@ class ControllerNode(Node):
         # if self.deadman_active:
 
 
+        #manual control with keyboard
+        # rx, ry, rz = self.R_tf_target.translation
+        # lx, ly, lz = self.L_tf_target.translation
 
-        rx, ry, rz = self.R_tf_target.translation
-        lx, ly, lz = self.L_tf_target.translation
+        # rx, ry, rz = self.check_keys(rx, ry, rz)
+        # lx, ly, lz = self.check_keys(lx, ly, lz)
 
-        rx, ry, rz = self.check_keys(rx, ry, rz)
-        lx, ly, lz = self.check_keys(lx, ly, lz)
-
-        self.R_tf_target.translation = np.array([rx, ry, rz])
-        self.L_tf_target.translation = np.array([lx, ly, lz])
+        # self.R_tf_target.translation = np.array([rx, ry, rz])
+        # self.L_tf_target.translation = np.array([lx, ly, lz])
 
         q = self.arm_controller.get_current_dual_arm_q()
         dq = self.arm_controller.get_current_dual_arm_dq()
 
+        #step towards target
+        # if self.latest_l_hand is not None and self.latest_r_hand is not None:
+        #     self.L_tf_target = self.step_towards_target(self.L_tf_target, self.latest_l_hand)
+        #     self.R_tf_target = self.step_towards_target(self.R_tf_target, self.latest_r_hand)
+
+        #move directly to target
         if self.latest_l_hand is not None and self.latest_r_hand is not None:
-            self.L_tf_target = self.step_towards_target(self.L_tf_target, self.latest_l_hand)
-            self.R_tf_target = self.step_towards_target(self.R_tf_target, self.latest_r_hand)
-        
+            
+            self.L_tf_target = self.latest_l_hand
+            self.R_tf_target = self.latest_r_hand
+
         sol_q, sol_tauff = self.arm_ik.solve_ik(
             self.L_tf_target.homogeneous,
             self.R_tf_target.homogeneous,
